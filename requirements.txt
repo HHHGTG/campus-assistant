@@ -5,3 +5,6 @@ langchain-community
 chromadb
 huggingface-hub
 pandas
+sentence-transformers
+torch
+transformers
