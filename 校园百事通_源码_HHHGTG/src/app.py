@@ -71,12 +71,20 @@ if not APIPASSWORD:
     st.error("❌ 请在 .env 文件中设置 SPARK_APIPASSWORD")
     st.stop()
 
-# ------------------- RAG 问答 -------------------
+# ------------------- RAG 问答（修改检索参数并添加调试） -------------------
 def rag_retrieve_answer(question):
-    docs = vector_db.similarity_search(question, k=3)
+    # 1. 检索：增加召回数量，从 3 条改为 5 条
+    docs = vector_db.similarity_search(question, k=5)
     context = "\n\n".join([d.page_content for d in docs])
+    
+    # 2. 调试面板：显示检索到的知识库内容（可折叠）
+    with st.expander("🔍 查看检索到的知识库内容（调试）"):
+        st.markdown(context)
+    
+    # 3. 拼接提示词
     prompt_text = RAG_PROMPT.format(context=context, question=question)
-
+    
+    # 4. 调用讯飞星火 HTTP 接口
     url = "https://spark-api-open.xf-yun.com/x2/chat/completions"
     headers = {
         "Content-Type": "application/json",
