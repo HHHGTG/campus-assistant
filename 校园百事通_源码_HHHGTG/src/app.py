@@ -63,10 +63,18 @@ def load_embeddings():
 def load_vector_db():
     embeddings = load_embeddings()
     
+    # 获取当前文件所在目录（.../src），然后定位到 data 文件夹
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    data_path = os.path.join(base_dir, "..", "data", "campus_data.csv")
+    
     # 检查向量库是否存在，如果不存在则自动构建
     if not os.path.exists("./vector_db") or not os.listdir("./vector_db"):
         st.info("🔨 首次启动，正在构建知识库向量（约1分钟），请稍候...")
-        df = pd.read_csv("./data/campus_data.csv")
+        try:
+            df = pd.read_csv(data_path)
+        except FileNotFoundError:
+            st.error(f"❌ 未找到数据文件: {data_path}，请确保 data/campus_data.csv 已上传到仓库。")
+            st.stop()
         texts = df['answer'].tolist()
         metadatas = df[['id', 'category', 'question', 'source']].to_dict('records')
         vector_db = Chroma.from_texts(
@@ -112,7 +120,7 @@ def rag_retrieve_answer(question):
     payload = {
         "model": "spark-x",
         "messages": [{"role": "user", "content": prompt_text}],
-        "temperature": 0.1  # 降低温度，让回答更确定
+        "temperature": 0.1
     }
     try:
         resp = requests.post(url, headers=headers, json=payload, timeout=30)
