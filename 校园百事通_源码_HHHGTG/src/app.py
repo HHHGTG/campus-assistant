@@ -51,7 +51,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ------------------- 缓存资源（静默构建） -------------------
+# ------------------- 缓存资源 -------------------
 @st.cache_resource
 def load_embeddings():
     return HuggingFaceEmbeddings(
@@ -86,10 +86,9 @@ if not APIPASSWORD:
 
 # ------------------- 获取对话历史 -------------------
 def get_conversation_history(max_turns=5):
-    """获取最近几轮对话历史，格式化为文本"""
+    """获取最近几轮对话历史"""
     if "messages" not in st.session_state:
         return ""
-    # 取最近 max_turns*2 条消息（因为每条对话包含 user + assistant）
     recent = st.session_state.messages[-max_turns*2:]
     history_text = ""
     for msg in recent:
@@ -97,29 +96,26 @@ def get_conversation_history(max_turns=5):
         history_text += f"{role}: {msg['content']}\n"
     return history_text
 
-# ------------------- RAG 问答（支持多轮对话） -------------------
+# ------------------- RAG 问答（支持多轮对话，无调试） -------------------
 def rag_retrieve_answer(question):
     # 1. 向量检索
     docs = vector_db.similarity_search(question, k=5)
     context = "\n\n".join([d.page_content for d in docs])
     
     # 2. 获取对话历史
-    history = get_conversation_history(max_turns=3)
+    history = get_conversation_history(max_turns=5)
     
-    # 3. 调试面板
-    with st.expander("🔍 查看检索到的知识库内容（调试）"):
-        st.markdown(context)
-        if history:
-            st.markdown("---")
-            st.markdown("### 💬 对话历史")
-            st.markdown(history)
+    # 3. 如果两者都为空，直接提示
+    if not context.strip() and not history.strip():
+        return "知识库和对话历史都没有相关信息，请提供更多内容。"
     
-    if not context.strip():
-        return "知识库暂时没有相关数据，请检查向量库是否已构建。"
-    
-    # 4. 构建带历史的提示词
+    # 4. 构建提示词（强调利用历史）
     if history:
-        prompt_text = f"""你是校园生活助手。请结合对话历史回答用户问题。
+        prompt_text = f"""你是校园生活助手。请结合对话历史和知识库回答用户问题。
+
+【重要】如果问题涉及用户个人信息（如姓名、身份等），请优先从对话历史中查找。
+如果知识库中有相关信息，请结合知识库回答。
+如果两者都没有，请回答"我不清楚，建议咨询辅导员"。
 
 【对话历史】
 {history}
@@ -129,13 +125,6 @@ def rag_retrieve_answer(question):
 
 【当前用户问题】
 {question}
-
-【回答要求】
-- 如果知识库中有相关信息，请基于知识库回答。
-- 如果知识库中没有相关信息，请直接回答"我不清楚，建议咨询辅导员"。
-- 可以结合对话历史上下文，让回答更连贯。
-- 不要添加知识库以外的信息。
-- 回答要简洁、准确。
 
 【回答】"""
     else:
@@ -182,7 +171,7 @@ with st.sidebar:
     - 📚 **校园规则查询**（请假、奖学金、报修等）
     - 📅 **校历周数查询**
     - 🎓 **绩点计算器**
-    - 💬 **多轮对话记忆**（记住之前聊的内容）
+    - 💬 **多轮对话记忆**
     """)
     st.markdown("---")
     st.markdown("### 💡 示例问题")
