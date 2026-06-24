@@ -18,16 +18,15 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ------------------- 自定义 CSS（仅调整背景和布局，不强制文字颜色） -------------------
+# ------------------- 自定义 CSS（自适应主题） -------------------
 st.markdown("""
 <style>
-    /* 标题样式 - 使用 Streamlit 默认颜色变量 */
     .main-title {
         font-size: 2.8rem;
         font-weight: 700;
         text-align: center;
         margin-bottom: 0.2rem;
-        color: var(--text-color); /* 自适应主题 */
+        color: var(--text-color);
     }
     .sub-title {
         font-size: 1.2rem;
@@ -36,7 +35,6 @@ st.markdown("""
         color: var(--text-color);
         opacity: 0.8;
     }
-    /* 聊天消息 - 只设置背景，文字颜色自动适应 */
     .stChatMessage.user {
         background-color: var(--primary-color) !important;
         border-radius: 12px;
@@ -48,10 +46,6 @@ st.markdown("""
         border-radius: 12px;
         padding: 12px;
         margin-bottom: 8px;
-    }
-    /* 侧边栏美化 */
-    .sidebar-content {
-        padding: 10px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -134,7 +128,7 @@ with st.sidebar:
     ]
     for ex in examples:
         if st.button(ex, key=ex, use_container_width=True):
-            st.session_state["input_example"] = ex
+            st.session_state["example_question"] = ex
     st.markdown("---")
     st.markdown("### 🗑️ 管理对话")
     if st.button("清空聊天记录", use_container_width=True):
@@ -151,18 +145,17 @@ st.markdown('<div class="sub-title">智能问答 · 校历查询 · 绩点计算
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-if "input_example" in st.session_state and st.session_state["input_example"]:
-    prompt = st.session_state["input_example"]
-    st.session_state["input_example"] = ""
-else:
-    prompt = None
-
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-if prompt is None:
-    prompt = st.chat_input("请输入你的校园问题...")
+# 始终显示输入框
+prompt = st.chat_input("请输入你的校园问题...")
+
+# 优先使用示例问题（如果存在）
+if "example_question" in st.session_state and st.session_state["example_question"]:
+    prompt = st.session_state["example_question"]
+    st.session_state["example_question"] = ""  # 清空
 
 if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
