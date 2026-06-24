@@ -51,7 +51,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ------------------- 缓存资源（含自动构建向量库） -------------------
+# ------------------- 缓存资源（静默构建） -------------------
 @st.cache_resource
 def load_embeddings():
     return HuggingFaceEmbeddings(
@@ -62,19 +62,8 @@ def load_embeddings():
 @st.cache_resource
 def load_vector_db():
     embeddings = load_embeddings()
-    
-    # 获取当前文件所在目录（.../src），然后定位到 data 文件夹
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    data_path = os.path.join(base_dir, "..", "data", "campus_data.csv")
-    
-    # 检查向量库是否存在，如果不存在则自动构建
     if not os.path.exists("./vector_db") or not os.listdir("./vector_db"):
-        st.info("")
-        try:
-            df = pd.read_csv(data_path)
-        except FileNotFoundError:
-            st.error(f"❌ 未找到数据文件: {data_path}，请确保 data/campus_data.csv 已上传到仓库。")
-            st.stop()
+        df = pd.read_csv("./data/campus_data.csv")
         texts = df['answer'].tolist()
         metadatas = df[['id', 'category', 'question', 'source']].to_dict('records')
         vector_db = Chroma.from_texts(
@@ -83,7 +72,6 @@ def load_vector_db():
             metadatas=metadatas,
             persist_directory="./vector_db"
         )
-        st.success("")
         return vector_db
     else:
         return Chroma(persist_directory="./vector_db", embedding_function=embeddings)
@@ -96,22 +84,64 @@ if not APIPASSWORD:
     st.error("❌ 请在 .env 文件中设置 SPARK_APIPASSWORD")
     st.stop()
 
-# ------------------- RAG 问答 -------------------
+# ------------------- 获取对话历史 -------------------
+def get_conversation_history(max_turns=5):
+    """获取最近几轮对话历史，格式化为文本"""
+    if "messages" not in st.session_state:
+        return ""
+    # 取最近 max_turns*2 条消息（因为每条对话包含 user + assistant）
+    recent = st.session_state.messages[-max_turns*2:]
+    history_text = ""
+    for msg in recent:
+        role = "用户" if msg["role"] == "user" else "助手"
+        history_text += f"{role}: {msg['content']}\n"
+    return history_text
+
+# ------------------- RAG 问答（支持多轮对话） -------------------
 def rag_retrieve_answer(question):
-    # 检索（k=5 提高召回率）
+    # 1. 向量检索
     docs = vector_db.similarity_search(question, k=5)
     context = "\n\n".join([d.page_content for d in docs])
     
-    # 调试面板：显示检索到的知识库内容
-    #with st.expander(""):
-        #st.markdown(context)
+    # 2. 获取对话历史
+    history = get_conversation_history(max_turns=3)
     
-    # 如果上下文为空，直接提示
+    # 3. 调试面板
+    with st.expander("🔍 查看检索到的知识库内容（调试）"):
+        st.markdown(context)
+        if history:
+            st.markdown("---")
+            st.markdown("### 💬 对话历史")
+            st.markdown(history)
+    
     if not context.strip():
         return "知识库暂时没有相关数据，请检查向量库是否已构建。"
     
-    prompt_text = RAG_PROMPT.format(context=context, question=question)
+    # 4. 构建带历史的提示词
+    if history:
+        prompt_text = f"""你是校园生活助手。请结合对话历史回答用户问题。
 
+【对话历史】
+{history}
+
+【知识库参考】
+{context}
+
+【当前用户问题】
+{question}
+
+【回答要求】
+- 如果知识库中有相关信息，请基于知识库回答。
+- 如果知识库中没有相关信息，请直接回答"我不清楚，建议咨询辅导员"。
+- 可以结合对话历史上下文，让回答更连贯。
+- 不要添加知识库以外的信息。
+- 回答要简洁、准确。
+
+【回答】"""
+    else:
+        prompt_text = RAG_PROMPT.format(context=context, question=question)
+
+    # 5. 调用讯飞星火 HTTP 接口
     url = "https://spark-api-open.xf-yun.com/x2/chat/completions"
     headers = {
         "Content-Type": "application/json",
@@ -152,6 +182,7 @@ with st.sidebar:
     - 📚 **校园规则查询**（请假、奖学金、报修等）
     - 📅 **校历周数查询**
     - 🎓 **绩点计算器**
+    - 💬 **多轮对话记忆**（记住之前聊的内容）
     """)
     st.markdown("---")
     st.markdown("### 💡 示例问题")
@@ -176,7 +207,7 @@ with st.sidebar:
 
 # ------------------- 主界面 -------------------
 st.markdown('<div class="main-title">🏫 校园生活百事通助手</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">智能问答 · 校历查询 · 绩点计算</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">智能问答 · 校历查询 · 绩点计算 · 多轮对话</div>', unsafe_allow_html=True)
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -185,10 +216,8 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# 输入框
 prompt = st.chat_input("请输入你的校园问题...")
 
-# 优先使用示例问题
 if "example_question" in st.session_state and st.session_state["example_question"]:
     prompt = st.session_state["example_question"]
     st.session_state["example_question"] = ""
