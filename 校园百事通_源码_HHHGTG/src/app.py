@@ -2,6 +2,7 @@ import streamlit as st
 import os
 import re
 import requests
+import pandas as pd
 from dotenv import load_dotenv
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -18,7 +19,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ------------------- 自定义 CSS（自适应主题） -------------------
+# ------------------- 自定义 CSS -------------------
 st.markdown("""
 <style>
     .main-title {
@@ -50,7 +51,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ------------------- 缓存资源 -------------------
+# ------------------- 缓存资源（含自动构建向量库） -------------------
 @st.cache_resource
 def load_embeddings():
     return HuggingFaceEmbeddings(
@@ -61,7 +62,23 @@ def load_embeddings():
 @st.cache_resource
 def load_vector_db():
     embeddings = load_embeddings()
-    return Chroma(persist_directory="./vector_db", embedding_function=embeddings)
+    
+    # 检查向量库是否存在，如果不存在则自动构建
+    if not os.path.exists("./vector_db") or not os.listdir("./vector_db"):
+        st.info("🔨 首次启动，正在构建知识库向量（约1分钟），请稍候...")
+        df = pd.read_csv("./data/campus_data.csv")
+        texts = df['answer'].tolist()
+        metadatas = df[['id', 'category', 'question', 'source']].to_dict('records')
+        vector_db = Chroma.from_texts(
+            texts=texts,
+            embedding=embeddings,
+            metadatas=metadatas,
+            persist_directory="./vector_db"
+        )
+        st.success("✅ 知识库构建完成！")
+        return vector_db
+    else:
+        return Chroma(persist_directory="./vector_db", embedding_function=embeddings)
 
 embeddings = load_embeddings()
 vector_db = load_vector_db()
@@ -71,20 +88,22 @@ if not APIPASSWORD:
     st.error("❌ 请在 .env 文件中设置 SPARK_APIPASSWORD")
     st.stop()
 
-# ------------------- RAG 问答（修改检索参数并添加调试） -------------------
+# ------------------- RAG 问答 -------------------
 def rag_retrieve_answer(question):
-    # 1. 检索：增加召回数量，从 3 条改为 5 条
+    # 检索（k=5 提高召回率）
     docs = vector_db.similarity_search(question, k=5)
     context = "\n\n".join([d.page_content for d in docs])
     
-    # 2. 调试面板：显示检索到的知识库内容（可折叠）
+    # 调试面板：显示检索到的知识库内容
     with st.expander("🔍 查看检索到的知识库内容（调试）"):
         st.markdown(context)
     
-    # 3. 拼接提示词
-    prompt_text = RAG_PROMPT.format(context=context, question=question)
+    # 如果上下文为空，直接提示
+    if not context.strip():
+        return "知识库暂时没有相关数据，请检查向量库是否已构建。"
     
-    # 4. 调用讯飞星火 HTTP 接口
+    prompt_text = RAG_PROMPT.format(context=context, question=question)
+
     url = "https://spark-api-open.xf-yun.com/x2/chat/completions"
     headers = {
         "Content-Type": "application/json",
@@ -93,7 +112,7 @@ def rag_retrieve_answer(question):
     payload = {
         "model": "spark-x",
         "messages": [{"role": "user", "content": prompt_text}],
-        "temperature": 0.3
+        "temperature": 0.1  # 降低温度，让回答更确定
     }
     try:
         resp = requests.post(url, headers=headers, json=payload, timeout=30)
@@ -131,6 +150,7 @@ with st.sidebar:
     examples = [
         "怎么请病假？",
         "奖学金需要什么条件？",
+        "宿舍灯坏了怎么报修？",
         "现在是第几周？",
         "绩点计算 85,90,78"
     ]
@@ -157,13 +177,13 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# 始终显示输入框
+# 输入框
 prompt = st.chat_input("请输入你的校园问题...")
 
-# 优先使用示例问题（如果存在）
+# 优先使用示例问题
 if "example_question" in st.session_state and st.session_state["example_question"]:
     prompt = st.session_state["example_question"]
-    st.session_state["example_question"] = ""  # 清空
+    st.session_state["example_question"] = ""
 
 if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
