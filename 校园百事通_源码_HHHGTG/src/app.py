@@ -3,6 +3,7 @@ import os
 import re
 import requests
 import pandas as pd
+import json
 from dotenv import load_dotenv
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -86,7 +87,6 @@ if not APIPASSWORD:
 
 # ------------------- 获取对话历史 -------------------
 def get_conversation_history(max_turns=5):
-    """获取最近几轮对话历史"""
     if "messages" not in st.session_state:
         return ""
     recent = st.session_state.messages[-max_turns*2:]
@@ -96,20 +96,15 @@ def get_conversation_history(max_turns=5):
         history_text += f"{role}: {msg['content']}\n"
     return history_text
 
-# ------------------- RAG 问答（支持多轮对话，无调试） -------------------
+# ------------------- RAG 问答 -------------------
 def rag_retrieve_answer(question):
-    # 1. 向量检索
     docs = vector_db.similarity_search(question, k=5)
     context = "\n\n".join([d.page_content for d in docs])
-    
-    # 2. 获取对话历史
     history = get_conversation_history(max_turns=5)
-    
-    # 3. 如果两者都为空，直接提示
+
     if not context.strip() and not history.strip():
         return "知识库和对话历史都没有相关信息，请提供更多内容。"
-    
-    # 4. 构建提示词（强调利用历史）
+
     if history:
         prompt_text = f"""你是校园生活助手。请结合对话历史和知识库回答用户问题。
 
@@ -130,7 +125,6 @@ def rag_retrieve_answer(question):
     else:
         prompt_text = RAG_PROMPT.format(context=context, question=question)
 
-    # 5. 调用讯飞星火 HTTP 接口
     url = "https://spark-api-open.xf-yun.com/x2/chat/completions"
     headers = {
         "Content-Type": "application/json",
@@ -172,6 +166,7 @@ with st.sidebar:
     - 📅 **校历周数查询**
     - 🎓 **绩点计算器**
     - 💬 **多轮对话记忆**
+    - 🔊 **自动语音播报**（回答后自动朗读）
     """)
     st.markdown("---")
     st.markdown("### 💡 示例问题")
@@ -196,7 +191,7 @@ with st.sidebar:
 
 # ------------------- 主界面 -------------------
 st.markdown('<div class="main-title">🏫 校园生活百事通助手</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">智能问答 · 校历查询 · 绩点计算 · 多轮对话</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">智能问答 · 校历查询 · 绩点计算 · 多轮对话 · 语音播报</div>', unsafe_allow_html=True)
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -205,8 +200,10 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
+# 输入框
 prompt = st.chat_input("请输入你的校园问题...")
 
+# 优先使用示例问题
 if "example_question" in st.session_state and st.session_state["example_question"]:
     prompt = st.session_state["example_question"]
     st.session_state["example_question"] = ""
@@ -220,4 +217,31 @@ if prompt:
         with st.spinner("🤔 思考中..."):
             answer = agent_answer(prompt)
         st.markdown(answer)
+
+        # ------------------- 自动语音播报（Web Speech API） -------------------
+        if answer and len(answer.strip()) > 0:
+            safe_answer = json.dumps(answer)  # 转义特殊字符
+            st.components.v1.html(f"""
+            <script>
+            (function() {{
+                var text = {safe_answer};
+                if (!window.speechSynthesis) {{
+                    console.warn('浏览器不支持语音合成');
+                    return;
+                }}
+                window.speechSynthesis.cancel();
+                var utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'zh-CN';
+                utterance.rate = 1.0;
+                utterance.pitch = 1.0;
+                utterance.volume = 1;
+                window.speechSynthesis.speak(utterance);
+                console.log('✅ 语音播报已触发');
+            }})();
+            </script>
+            """, height=0)
+
         st.session_state.messages.append({"role": "assistant", "content": answer})
+
+
+        
