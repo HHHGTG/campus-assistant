@@ -4,8 +4,9 @@ import re
 import requests
 import pandas as pd
 import json
+import shutil
 from dotenv import load_dotenv
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma  # 替换为 langchain-chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from prompt_templates import RAG_PROMPT
 from tools import get_current_week, calculate_gpa
@@ -52,13 +53,34 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ------------------- 缓存资源 -------------------
+# ------------------- 缓存资源（路径修正） -------------------
 @st.cache_resource
 def load_embeddings():
     return HuggingFaceEmbeddings(
         model_name="BAAI/bge-small-zh",
         model_kwargs={"trust_remote_code": True}
     )
+
+def rebuild_vector_db():
+    """强制重建向量库（删除旧库，从CSV重新构建）"""
+    embeddings = load_embeddings()
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    db_path = os.path.join(base_dir, "vector_db")
+    csv_path = os.path.join(base_dir, "data", "campus_data.csv")
+    
+    if os.path.exists(db_path):
+        shutil.rmtree(db_path)
+    
+    df = pd.read_csv(csv_path)
+    texts = df['answer'].tolist()
+    metadatas = df[['id', 'category', 'question', 'source']].to_dict('records')
+    vector_db = Chroma.from_texts(
+        texts=texts,
+        embedding=embeddings,
+        metadatas=metadatas,
+        persist_directory=db_path
+    )
+    return vector_db
 
 @st.cache_resource
 def load_vector_db():
@@ -184,6 +206,14 @@ with st.sidebar:
         if st.button(ex, key=ex, use_container_width=True):
             st.session_state["example_question"] = ex
     st.markdown("---")
+    st.markdown("### 🔄 更新知识库")
+    if st.button("🔄 重建知识库（更新资料后点击）", use_container_width=True):
+        with st.spinner("正在重建知识库，请稍候..."):
+            st.cache_resource.clear()
+            rebuild_vector_db()
+        st.success("✅ 知识库已更新！请重新提问。")
+        st.rerun()
+    st.markdown("---")
     st.markdown("### 🗑️ 管理对话")
     if st.button("清空聊天记录", use_container_width=True):
         st.session_state.messages = []
@@ -203,10 +233,8 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# 输入框
 prompt = st.chat_input("请输入你的校园问题...")
 
-# 优先使用示例问题
 if "example_question" in st.session_state and st.session_state["example_question"]:
     prompt = st.session_state["example_question"]
     st.session_state["example_question"] = ""
@@ -221,7 +249,7 @@ if prompt:
             answer = agent_answer(prompt)
         st.markdown(answer)
 
-        # ------------------- 自动语音播报 -------------------
+        # 语音播报
         if answer and len(answer.strip()) > 0:
             safe_answer = json.dumps(answer)
             st.components.v1.html(f"""
@@ -251,11 +279,7 @@ if prompt:
                 }}
                 if (preferredVoice) {{
                     utterance.voice = preferredVoice;
-                    console.log('使用语音:', preferredVoice.name);
-                }} else {{
-                    console.log('未找到首选语音，使用默认语音');
                 }}
-
                 window.speechSynthesis.speak(utterance);
                 console.log('✅ 语音播报已触发');
             }})();
