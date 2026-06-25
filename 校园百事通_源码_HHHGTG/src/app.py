@@ -52,7 +52,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ------------------- 缓存资源 -------------------
+# ------------------- 缓存资源（路径修正） -------------------
 @st.cache_resource
 def load_embeddings():
     return HuggingFaceEmbeddings(
@@ -63,19 +63,25 @@ def load_embeddings():
 @st.cache_resource
 def load_vector_db():
     embeddings = load_embeddings()
-    if not os.path.exists("./vector_db") or not os.listdir("./vector_db"):
-        df = pd.read_csv("./data/campus_data.csv")
+    # 获取当前脚本所在目录的父目录（项目根目录）
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    db_path = os.path.join(base_dir, "vector_db")
+    csv_path = os.path.join(base_dir, "data", "campus_data.csv")
+
+    # 如果向量库不存在，则构建
+    if not os.path.exists(db_path) or not os.listdir(db_path):
+        df = pd.read_csv(csv_path)
         texts = df['answer'].tolist()
         metadatas = df[['id', 'category', 'question', 'source']].to_dict('records')
         vector_db = Chroma.from_texts(
             texts=texts,
             embedding=embeddings,
             metadatas=metadatas,
-            persist_directory="./vector_db"
+            persist_directory=db_path
         )
         return vector_db
     else:
-        return Chroma(persist_directory="./vector_db", embedding_function=embeddings)
+        return Chroma(persist_directory=db_path, embedding_function=embeddings)
 
 embeddings = load_embeddings()
 vector_db = load_vector_db()
@@ -242,6 +248,3 @@ if prompt:
             """, height=0)
 
         st.session_state.messages.append({"role": "assistant", "content": answer})
-
-
-        
