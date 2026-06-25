@@ -4,7 +4,6 @@ import re
 import requests
 import pandas as pd
 import json
-import shutil
 from dotenv import load_dotenv
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -15,7 +14,7 @@ load_dotenv()
 
 # ------------------- 页面配置 -------------------
 st.set_page_config(
-    page_title="校园百事通",
+    page_title="交院百事通",
     page_icon="🏫",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -53,36 +52,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ------------------- 缓存资源（路径修正） -------------------
+# ------------------- 缓存资源 -------------------
 @st.cache_resource
 def load_embeddings():
     return HuggingFaceEmbeddings(
         model_name="BAAI/bge-small-zh",
         model_kwargs={"trust_remote_code": True}
     )
-
-def rebuild_vector_db():
-    """强制重建向量库（删除旧库，从CSV重新构建）"""
-    embeddings = load_embeddings()
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    db_path = os.path.join(base_dir, "vector_db")
-    csv_path = os.path.join(base_dir, "data", "campus_data.csv")
-    
-    # 如果已有向量库，先删除
-    if os.path.exists(db_path):
-        shutil.rmtree(db_path)
-    
-    # 从CSV重建
-    df = pd.read_csv(csv_path)
-    texts = df['answer'].tolist()
-    metadatas = df[['id', 'category', 'question', 'source']].to_dict('records')
-    vector_db = Chroma.from_texts(
-        texts=texts,
-        embedding=embeddings,
-        metadatas=metadatas,
-        persist_directory=db_path
-    )
-    return vector_db
 
 @st.cache_resource
 def load_vector_db():
@@ -92,7 +68,6 @@ def load_vector_db():
     csv_path = os.path.join(base_dir, "data", "campus_data.csv")
 
     if not os.path.exists(db_path) or not os.listdir(db_path):
-        # 首次启动，构建
         df = pd.read_csv(csv_path)
         texts = df['answer'].tolist()
         metadatas = df[['id', 'category', 'question', 'source']].to_dict('records')
@@ -187,15 +162,14 @@ def agent_answer(question):
 
 # ------------------- 侧边栏 -------------------
 with st.sidebar:
-    st.markdown("## 🏫 校园百事通")
+    st.markdown("## 🏫 交院百事通")
     st.markdown("---")
     st.markdown("### ✨ 我能做什么？")
     st.markdown("""
     - 📚 **校园规则查询**（请假、奖学金、报修等）
     - 📅 **校历周数查询**
     - 🎓 **绩点计算器**
-    - 💬 **多轮对话记忆**
-    - 🔊 **自动语音播报**（自然中文语音）
+
     """)
     st.markdown("---")
     st.markdown("### 💡 示例问题")
@@ -210,16 +184,6 @@ with st.sidebar:
         if st.button(ex, key=ex, use_container_width=True):
             st.session_state["example_question"] = ex
     st.markdown("---")
-    st.markdown("### 🔄 更新知识库")
-    if st.button("🔄 重建知识库（更新资料后点击）", use_container_width=True):
-        with st.spinner("正在重建知识库，请稍候..."):
-            # 清除缓存，让 load_vector_db 重新执行
-            st.cache_resource.clear()
-            # 重建向量库（删除旧库并创建新库）
-            rebuild_vector_db()
-        st.success("✅ 知识库已更新！请重新提问。")
-        st.rerun()
-    st.markdown("---")
     st.markdown("### 🗑️ 管理对话")
     if st.button("清空聊天记录", use_container_width=True):
         st.session_state.messages = []
@@ -230,7 +194,7 @@ with st.sidebar:
 
 # ------------------- 主界面 -------------------
 st.markdown('<div class="main-title">🏫 校园生活百事通助手</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">智能问答 · 校历查询 · 绩点计算 · 多轮对话 · 语音播报</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">智能问答 · 校历查询 · 绩点计算</div>', unsafe_allow_html=True)
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
