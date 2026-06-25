@@ -14,7 +14,7 @@ load_dotenv()
 
 # ------------------- 页面配置 -------------------
 st.set_page_config(
-    page_title="校园百事通",
+    page_title="安交百事通",
     page_icon="🏫",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -162,15 +162,13 @@ def agent_answer(question):
 
 # ------------------- 侧边栏 -------------------
 with st.sidebar:
-    st.markdown("## 🏫 校园百事通")
+    st.markdown("## 🏫 安交百事通")
     st.markdown("---")
     st.markdown("### ✨ 我能做什么？")
     st.markdown("""
     - 📚 **校园规则查询**（请假、奖学金、报修等）
     - 📅 **校历周数查询**
     - 🎓 **绩点计算器**
-    - 💬 **多轮对话记忆**
-    - 🔊 **自动语音播报**（沉稳风格）
     """)
     st.markdown("---")
     st.markdown("### 💡 示例问题")
@@ -185,6 +183,40 @@ with st.sidebar:
         if st.button(ex, key=ex, use_container_width=True):
             st.session_state["example_question"] = ex
     st.markdown("---")
+    st.markdown("### 🔊 语音设置")
+    if st.button("🔊 测试语音", use_container_width=True):
+        test_text = "你好，我是校园百事通助手。语音播报功能已就绪。"
+        st.components.v1.html(f"""
+        <script>
+        (function() {{
+            var text = "{test_text}";
+            if (!window.speechSynthesis) {{
+                alert('浏览器不支持语音合成');
+                return;
+            }}
+            window.speechSynthesis.cancel();
+            var utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'zh-CN';
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+            utterance.volume = 1;
+            var voices = window.speechSynthesis.getVoices();
+            var preferredVoice = null;
+            for (var i = 0; i < voices.length; i++) {{
+                if (voices[i].name.includes('Huihui') || voices[i].name.includes('Microsoft') || voices[i].name.includes('Google 普通话')) {{
+                    preferredVoice = voices[i];
+                    break;
+                }}
+            }}
+            if (preferredVoice) {{
+                utterance.voice = preferredVoice;
+            }}
+            window.speechSynthesis.speak(utterance);
+        }})();
+        </script>
+        """, height=0)
+        st.success("🎵 测试语音已发送，请听是否有声音。")
+    st.markdown("---")
     st.markdown("### 🗑️ 管理对话")
     if st.button("清空聊天记录", use_container_width=True):
         st.session_state.messages = []
@@ -195,7 +227,7 @@ with st.sidebar:
 
 # ------------------- 主界面 -------------------
 st.markdown('<div class="main-title">🏫 校园生活百事通助手</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">智能问答 · 校历查询 · 绩点计算 · 多轮对话 · 语音播报</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">智能问答 · 校历查询 · 绩点计算</div>', unsafe_allow_html=True)
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -204,8 +236,10 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
+# 输入框
 prompt = st.chat_input("请输入你的校园问题...")
 
+# 优先使用示例问题
 if "example_question" in st.session_state and st.session_state["example_question"]:
     prompt = st.session_state["example_question"]
     st.session_state["example_question"] = ""
@@ -220,7 +254,7 @@ if prompt:
             answer = agent_answer(prompt)
         st.markdown(answer)
 
-        # ------------------- 语音播报（沉稳风格） -------------------
+        # ------------------- 自动语音播报（使用您指定的脚本） -------------------
         if answer and len(answer.strip()) > 0:
             safe_answer = json.dumps(answer)
             st.components.v1.html(f"""
@@ -231,17 +265,19 @@ if prompt:
                     console.warn('浏览器不支持语音合成');
                     return;
                 }}
+                // 取消正在播放的语音
                 window.speechSynthesis.cancel();
 
                 var utterance = new SpeechSynthesisUtterance(text);
                 utterance.lang = 'zh-CN';
-                utterance.rate = 0.8;    // 语速稍慢，沉稳
-                utterance.pitch = 0.7;   // 音调低沉
+                utterance.rate = 1.0;
+                utterance.pitch = 1.0;
                 utterance.volume = 1;
 
-                // 优先选择较自然的语音
+                // 尝试选择更自然的中文语音
                 var voices = window.speechSynthesis.getVoices();
                 var preferredVoice = null;
+                // 优先选择 Microsoft Huihui 或 Google 普通话
                 for (var i = 0; i < voices.length; i++) {{
                     var name = voices[i].name;
                     if (name.includes('Huihui') || name.includes('Microsoft') || name.includes('Google 普通话')) {{
@@ -251,10 +287,14 @@ if prompt:
                 }}
                 if (preferredVoice) {{
                     utterance.voice = preferredVoice;
+                    console.log('使用语音:', preferredVoice.name);
+                }} else {{
+                    console.log('未找到首选语音，使用默认语音');
                 }}
 
+                // 播报
                 window.speechSynthesis.speak(utterance);
-                console.log('✅ 语音播报已触发（语速0.8，音调0.7）');
+                console.log('✅ 语音播报已触发');
             }})();
             </script>
             """, height=0)
