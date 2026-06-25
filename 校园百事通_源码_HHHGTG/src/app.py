@@ -63,12 +63,10 @@ def load_embeddings():
 @st.cache_resource
 def load_vector_db():
     embeddings = load_embeddings()
-    # 获取当前脚本所在目录的父目录（项目根目录）
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     db_path = os.path.join(base_dir, "vector_db")
     csv_path = os.path.join(base_dir, "data", "campus_data.csv")
 
-    # 如果向量库不存在，则构建
     if not os.path.exists(db_path) or not os.listdir(db_path):
         df = pd.read_csv(csv_path)
         texts = df['answer'].tolist()
@@ -172,7 +170,7 @@ with st.sidebar:
     - 📅 **校历周数查询**
     - 🎓 **绩点计算器**
     - 💬 **多轮对话记忆**
-    - 🔊 **自动语音播报**（回答后自动朗读）
+    - 🔊 **自动语音播报**（沉稳风格）
     """)
     st.markdown("---")
     st.markdown("### 💡 示例问题")
@@ -206,10 +204,8 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# 输入框
 prompt = st.chat_input("请输入你的校园问题...")
 
-# 优先使用示例问题
 if "example_question" in st.session_state and st.session_state["example_question"]:
     prompt = st.session_state["example_question"]
     st.session_state["example_question"] = ""
@@ -224,9 +220,9 @@ if prompt:
             answer = agent_answer(prompt)
         st.markdown(answer)
 
-        # ------------------- 自动语音播报（Web Speech API） -------------------
+        # ------------------- 语音播报（沉稳风格） -------------------
         if answer and len(answer.strip()) > 0:
-            safe_answer = json.dumps(answer)  # 转义特殊字符
+            safe_answer = json.dumps(answer)
             st.components.v1.html(f"""
             <script>
             (function() {{
@@ -236,13 +232,29 @@ if prompt:
                     return;
                 }}
                 window.speechSynthesis.cancel();
+
                 var utterance = new SpeechSynthesisUtterance(text);
                 utterance.lang = 'zh-CN';
-                utterance.rate = 1.0;
-                utterance.pitch = 1.0;
+                utterance.rate = 0.8;    // 语速稍慢，沉稳
+                utterance.pitch = 0.7;   // 音调低沉
                 utterance.volume = 1;
+
+                // 优先选择较自然的语音
+                var voices = window.speechSynthesis.getVoices();
+                var preferredVoice = null;
+                for (var i = 0; i < voices.length; i++) {{
+                    var name = voices[i].name;
+                    if (name.includes('Huihui') || name.includes('Microsoft') || name.includes('Google 普通话')) {{
+                        preferredVoice = voices[i];
+                        break;
+                    }}
+                }}
+                if (preferredVoice) {{
+                    utterance.voice = preferredVoice;
+                }}
+
                 window.speechSynthesis.speak(utterance);
-                console.log('✅ 语音播报已触发');
+                console.log('✅ 语音播报已触发（语速0.8，音调0.7）');
             }})();
             </script>
             """, height=0)
