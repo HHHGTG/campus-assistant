@@ -4,6 +4,7 @@ import re
 import requests
 import pandas as pd
 import json
+import shutil
 from dotenv import load_dotenv
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -14,7 +15,7 @@ load_dotenv()
 
 # ------------------- 页面配置 -------------------
 st.set_page_config(
-    page_title="安交百事通",
+    page_title="校园百事通",
     page_icon="🏫",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -60,6 +61,30 @@ def load_embeddings():
         model_kwargs={"trust_remote_code": True}
     )
 
+def build_vector_db():
+    """构建向量库（用于首次启动或重建）"""
+    embeddings = load_embeddings()
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    db_path = os.path.join(base_dir, "vector_db")
+    csv_path = os.path.join(base_dir, "data", "campus_data.csv")
+    
+    # 如果已有向量库，先删除
+    if os.path.exists(db_path):
+        shutil.rmtree(db_path)
+        st.info("🗑️ 已删除旧向量库")
+    
+    # 从CSV重建
+    df = pd.read_csv(csv_path)
+    texts = df['answer'].tolist()
+    metadatas = df[['id', 'category', 'question', 'source']].to_dict('records')
+    vector_db = Chroma.from_texts(
+        texts=texts,
+        embedding=embeddings,
+        metadatas=metadatas,
+        persist_directory=db_path
+    )
+    return vector_db
+
 @st.cache_resource
 def load_vector_db():
     embeddings = load_embeddings()
@@ -68,16 +93,8 @@ def load_vector_db():
     csv_path = os.path.join(base_dir, "data", "campus_data.csv")
 
     if not os.path.exists(db_path) or not os.listdir(db_path):
-        df = pd.read_csv(csv_path)
-        texts = df['answer'].tolist()
-        metadatas = df[['id', 'category', 'question', 'source']].to_dict('records')
-        vector_db = Chroma.from_texts(
-            texts=texts,
-            embedding=embeddings,
-            metadatas=metadatas,
-            persist_directory=db_path
-        )
-        return vector_db
+        # 首次启动，构建
+        return build_vector_db()
     else:
         return Chroma(persist_directory=db_path, embedding_function=embeddings)
 
@@ -162,13 +179,15 @@ def agent_answer(question):
 
 # ------------------- 侧边栏 -------------------
 with st.sidebar:
-    st.markdown("## 🏫 安交百事通")
+    st.markdown("## 🏫 校园百事通")
     st.markdown("---")
     st.markdown("### ✨ 我能做什么？")
     st.markdown("""
     - 📚 **校园规则查询**（请假、奖学金、报修等）
     - 📅 **校历周数查询**
     - 🎓 **绩点计算器**
+    - 💬 **多轮对话记忆**
+    - 🔊 **自动语音播报**（自然中文语音）
     """)
     st.markdown("---")
     st.markdown("### 💡 示例问题")
@@ -183,39 +202,16 @@ with st.sidebar:
         if st.button(ex, key=ex, use_container_width=True):
             st.session_state["example_question"] = ex
     st.markdown("---")
-    st.markdown("### 🔊 语音设置")
-    if st.button("🔊 测试语音", use_container_width=True):
-        test_text = "你好，我是校园百事通助手。语音播报功能已就绪。"
-        st.components.v1.html(f"""
-        <script>
-        (function() {{
-            var text = "{test_text}";
-            if (!window.speechSynthesis) {{
-                alert('浏览器不支持语音合成');
-                return;
-            }}
-            window.speechSynthesis.cancel();
-            var utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = 'zh-CN';
-            utterance.rate = 1.0;
-            utterance.pitch = 1.0;
-            utterance.volume = 1;
-            var voices = window.speechSynthesis.getVoices();
-            var preferredVoice = null;
-            for (var i = 0; i < voices.length; i++) {{
-                if (voices[i].name.includes('Huihui') || voices[i].name.includes('Microsoft') || voices[i].name.includes('Google 普通话')) {{
-                    preferredVoice = voices[i];
-                    break;
-                }}
-            }}
-            if (preferredVoice) {{
-                utterance.voice = preferredVoice;
-            }}
-            window.speechSynthesis.speak(utterance);
-        }})();
-        </script>
-        """, height=0)
-        st.success("🎵 测试语音已发送，请听是否有声音。")
+    st.markdown("### 🔄 更新知识库")
+    if st.button("🔄 重建知识库（更新资料后点击）", use_container_width=True):
+        with st.spinner("正在重建知识库，请稍候..."):
+            # 清除旧的缓存
+            st.cache_resource.clear()
+            # 重建向量库
+            global vector_db
+            vector_db = build_vector_db()
+            st.success("✅ 知识库已更新！请重新提问。")
+            st.rerun()
     st.markdown("---")
     st.markdown("### 🗑️ 管理对话")
     if st.button("清空聊天记录", use_container_width=True):
@@ -227,7 +223,7 @@ with st.sidebar:
 
 # ------------------- 主界面 -------------------
 st.markdown('<div class="main-title">🏫 校园生活百事通助手</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">智能问答 · 校历查询 · 绩点计算</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">智能问答 · 校历查询 · 绩点计算 · 多轮对话 · 语音播报</div>', unsafe_allow_html=True)
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -265,7 +261,6 @@ if prompt:
                     console.warn('浏览器不支持语音合成');
                     return;
                 }}
-                // 取消正在播放的语音
                 window.speechSynthesis.cancel();
 
                 var utterance = new SpeechSynthesisUtterance(text);
@@ -274,10 +269,8 @@ if prompt:
                 utterance.pitch = 1.0;
                 utterance.volume = 1;
 
-                // 尝试选择更自然的中文语音
                 var voices = window.speechSynthesis.getVoices();
                 var preferredVoice = null;
-                // 优先选择 Microsoft Huihui 或 Google 普通话
                 for (var i = 0; i < voices.length; i++) {{
                     var name = voices[i].name;
                     if (name.includes('Huihui') || name.includes('Microsoft') || name.includes('Google 普通话')) {{
@@ -292,7 +285,6 @@ if prompt:
                     console.log('未找到首选语音，使用默认语音');
                 }}
 
-                // 播报
                 window.speechSynthesis.speak(utterance);
                 console.log('✅ 语音播报已触发');
             }})();
