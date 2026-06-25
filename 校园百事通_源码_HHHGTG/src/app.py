@@ -61,8 +61,8 @@ def load_embeddings():
         model_kwargs={"trust_remote_code": True}
     )
 
-def build_vector_db():
-    """构建向量库（用于首次启动或重建）"""
+def rebuild_vector_db():
+    """强制重建向量库（删除旧库，从CSV重新构建）"""
     embeddings = load_embeddings()
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     db_path = os.path.join(base_dir, "vector_db")
@@ -71,7 +71,6 @@ def build_vector_db():
     # 如果已有向量库，先删除
     if os.path.exists(db_path):
         shutil.rmtree(db_path)
-        st.info("🗑️ 已删除旧向量库")
     
     # 从CSV重建
     df = pd.read_csv(csv_path)
@@ -94,7 +93,16 @@ def load_vector_db():
 
     if not os.path.exists(db_path) or not os.listdir(db_path):
         # 首次启动，构建
-        return build_vector_db()
+        df = pd.read_csv(csv_path)
+        texts = df['answer'].tolist()
+        metadatas = df[['id', 'category', 'question', 'source']].to_dict('records')
+        vector_db = Chroma.from_texts(
+            texts=texts,
+            embedding=embeddings,
+            metadatas=metadatas,
+            persist_directory=db_path
+        )
+        return vector_db
     else:
         return Chroma(persist_directory=db_path, embedding_function=embeddings)
 
@@ -205,13 +213,12 @@ with st.sidebar:
     st.markdown("### 🔄 更新知识库")
     if st.button("🔄 重建知识库（更新资料后点击）", use_container_width=True):
         with st.spinner("正在重建知识库，请稍候..."):
-            # 清除旧的缓存
+            # 清除缓存，让 load_vector_db 重新执行
             st.cache_resource.clear()
-            # 重建向量库
-            global vector_db
-            vector_db = build_vector_db()
-            st.success("✅ 知识库已更新！请重新提问。")
-            st.rerun()
+            # 重建向量库（删除旧库并创建新库）
+            rebuild_vector_db()
+        st.success("✅ 知识库已更新！请重新提问。")
+        st.rerun()
     st.markdown("---")
     st.markdown("### 🗑️ 管理对话")
     if st.button("清空聊天记录", use_container_width=True):
@@ -250,7 +257,7 @@ if prompt:
             answer = agent_answer(prompt)
         st.markdown(answer)
 
-        # ------------------- 自动语音播报（使用您指定的脚本） -------------------
+        # ------------------- 自动语音播报 -------------------
         if answer and len(answer.strip()) > 0:
             safe_answer = json.dumps(answer)
             st.components.v1.html(f"""
